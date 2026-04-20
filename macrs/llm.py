@@ -50,6 +50,10 @@ def get_llm(
             provider = "ollama"
         elif model_name.startswith("openai/"):
             provider = "openai"
+        elif model_name.startswith("deepseek/"):
+            provider = "deepseek"
+        elif model_name.startswith("glm/"):
+            provider = "glm"
         else:
             # Default to groq for backward compatibility
             provider = "groq"
@@ -80,6 +84,36 @@ def get_llm(
             num_predict=max_retries,
             streaming=streaming,
             callbacks=callbacks,
+        )
+    elif provider == "deepseek":
+        # Strip prefix if present for DeepSeek model name
+        deepseek_model = model_name
+        if deepseek_model.startswith("deepseek/"):
+            deepseek_model = deepseek_model[9:]
+        return ChatOpenAI(
+            model=deepseek_model,
+            temperature=temperature,
+            request_timeout=timeout,
+            max_retries=max_retries,
+            streaming=streaming,
+            callbacks=callbacks,
+            base_url="https://api.deepseek.com/v1",
+            api_key=os.getenv("DEEPSEEK_API_KEY"),
+        )
+    elif provider == "glm":
+        # Strip prefix if present for GLM model name
+        glm_model = model_name
+        if glm_model.startswith("glm/"):
+            glm_model = glm_model[4:]
+        return ChatOpenAI(
+            model=glm_model,
+            temperature=temperature,
+            request_timeout=timeout,
+            max_retries=max_retries,
+            streaming=streaming,
+            callbacks=callbacks,
+            base_url="https://open.bigmodel.cn/api/paas/v4",
+            api_key=os.getenv("ZHIPUAI_API_KEY"),
         )
     else:
         # Default to Groq for backward compatibility
