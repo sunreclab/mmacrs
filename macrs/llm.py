@@ -4,12 +4,14 @@ import json
 import logging
 import os
 import time
-from typing import Any, List
+from typing import Any, List, Union
 from typing import Optional, Type, TypeVar
 
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.messages import SystemMessage, HumanMessage
 from langchain_groq import ChatGroq
+from langchain_ollama import ChatOllama
+from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, ValidationError
 
 
@@ -33,18 +35,96 @@ def get_llm(
     streaming: bool = False,
     callbacks: Optional[List[BaseCallbackHandler]] = None,
     max_retries: int = 2,
-) -> ChatGroq:
+) -> Union[ChatGroq, ChatOpenAI, ChatOllama]:
     if os.getenv("MACRS_USE_LLM", "1").lower() in {"0", "false", "no"}:
         raise RuntimeError("LLM usage disabled via MACRS_USE_LLM")
-    model_name = model or os.getenv("MACRS_LLM_MODEL", "openai/gpt-oss-20b")
-    return ChatGroq(
-        model=model_name,
-        temperature=temperature,
-        timeout=timeout,
-        max_retries=max_retries,
-        streaming=streaming,
-        callbacks=callbacks,
-    )
+    
+    model_name = model or os.getenv("MACRS_LLM_MODEL", "")
+    
+    # Determine provider based on model name prefix or environment variable
+    provider = os.getenv("MACRS_LLM_PROVIDER", "").lower()
+    
+    # Auto-detect provider from model name if not explicitly set
+    if not provider:
+        if model_name.startswith("ollama/") or model_name.startswith("ollama:"):
+            provider = "ollama"
+        elif model_name.startswith("openai/"):
+            provider = "openai"
+        elif model_name.startswith("deepseek/"):
+            provider = "deepseek"
+        elif model_name.startswith("glm/"):
+            provider = "glm"
+        else:
+            # Default to groq for backward compatibility
+            provider = "groq"
+    
+    if provider == "openai":
+        # Strip prefix if present for OpenAI model name
+        openai_model = model_name
+        if openai_model.startswith("openai/"):
+            openai_model = openai_model[7:]
+        return ChatOpenAI(
+            model=openai_model,
+            temperature=temperature,
+            request_timeout=timeout,
+            max_retries=max_retries,
+            streaming=streaming,
+            callbacks=callbacks,
+        )
+    elif provider == "ollama":
+        # Strip prefix if present for Ollama model name
+        ollama_model = model_name
+        if ollama_model.startswith("ollama/"):
+            ollama_model = ollama_model[7:]
+        elif ollama_model.startswith("ollama:"):
+            ollama_model = ollama_model[7:]
+        return ChatOllama(
+            model=ollama_model,
+            temperature=temperature,
+            num_predict=max_retries,
+            streaming=streaming,
+            callbacks=callbacks,
+        )
+    elif provider == "deepseek":
+        # Strip prefix if present for DeepSeek model name
+        deepseek_model = model_name
+        if deepseek_model.startswith("deepseek/"):
+            deepseek_model = deepseek_model[9:]
+        return ChatOpenAI(
+            model=deepseek_model,
+            temperature=temperature,
+            request_timeout=timeout,
+            max_retries=max_retries,
+            streaming=streaming,
+            callbacks=callbacks,
+            base_url="https://api.deepseek.com/v1",
+            api_key=os.getenv("DEEPSEEK_API_KEY"),
+        )
+    elif provider == "glm":
+        # Strip prefix if present for GLM model name
+        glm_model = model_name
+        if glm_model.startswith("glm/"):
+            glm_model = glm_model[4:]
+        return ChatOpenAI(
+            model=glm_model,
+            temperature=temperature,
+            request_timeout=timeout,
+            max_retries=max_retries,
+            streaming=streaming,
+            callbacks=callbacks,
+            base_url="https://open.bigmodel.cn/api/paas/v4",
+            api_key=os.getenv("ZHIPUAI_API_KEY"),
+        )
+    else:
+        # Default to Groq for backward compatibility
+        return ChatGroq(
+            model=model_name,
+            temperature=temperature,
+            timeout=timeout,
+            max_retries=max_retries,
+            streaming=streaming,
+            callbacks=callbacks,
+        )
 
 
 def generate_structured_output(prompt: str, schema: Type[T], model: Optional[str] = None) -> Optional[T]:
